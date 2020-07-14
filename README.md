@@ -68,7 +68,7 @@ Download the tests repo
 
 Run the compliance tests
 
-`cd $SERV/riscv-compliance && make TARGETDIR=$SERV/serv/riscv-target RISCV_TARGET=serv RISCV_DECICE=rv32i RISCV_ISA=rv32i TARGET_SIM=$SERV/workspace/build/servant_1.0.1/verilator_tb-verilator/Vservant_sim`
+`cd $SERV/riscv-compliance && make TARGETDIR=$SERV/serv/riscv-target RISCV_TARGET=serv RISCV_DECICE=rv32i RISCV_ISA=rv32i TARGET_SIM=$SERV/workspace/build/servant_1.0.2/verilator_tb-verilator/Vservant_sim`
 
 ## Run on hardware
 
