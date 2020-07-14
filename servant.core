@@ -110,7 +110,7 @@ targets:
     parameters : [memfile, memsize, PLL=ICE40_PAD]
     tools:
       icestorm:
-        nextpnr_options: [--up5k, --freq, 16]
+        nextpnr_options: [--up5k, --package, "sg48", --freq, 16]
         pnr: next
     toplevel : service
 
