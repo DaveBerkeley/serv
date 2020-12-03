@@ -1,4 +1,6 @@
 module serv_state
+  #(parameter RESET_STRATEGY = "MINI",
+    parameter [0:0] WITH_CSR = 1)
   (
    input wire 	     i_clk,
    input wire 	     i_rst,
@@ -6,12 +8,15 @@ module serv_state
    output wire 	     o_trap_taken,
    output reg 	     o_pending_irq,
    input wire 	     i_dbus_ack,
+   output wire 	     o_ibus_cyc,
    input wire 	     i_ibus_ack,
    output wire 	     o_rf_rreq,
    output wire 	     o_rf_wreq,
    input wire 	     i_rf_ready,
    output wire 	     o_rf_rd_en,
-   input wire 	     i_take_branch,
+   input wire 	     i_cond_branch,
+   input wire 	     i_bne_or_bge,
+   input wire 	     i_alu_cmp,
    input wire 	     i_branch_op,
    input wire 	     i_mem_op,
    input wire 	     i_shift_op,
@@ -39,8 +44,6 @@ module serv_state
    output reg 	     o_cnt_done,
    output wire 	     o_bufreg_hold);
 
-   parameter WITH_CSR = 1;
-
    wire 	     cnt4;
 
    reg 	stage_two_req;
@@ -48,6 +51,7 @@ module serv_state
    reg [4:2] o_cnt;
    reg [3:0] o_cnt_r;
 
+   reg 	     ibus_cyc;
    //Update PC in RUN or TRAP states
    assign o_ctrl_pc_en  = o_cnt_en & !o_init;
 
@@ -65,6 +69,13 @@ module serv_state
    
    assign o_alu_shamt_en = (o_cnt0to3 | cnt4) & o_init;
 
+   //Take branch for jump or branch instructions (opcode == 1x0xx) if
+   //a) It's an unconditional branch (opcode[0] == 1)
+   //b) It's a conditional branch (opcode[0] == 0) of type beq,blt,bltu (funct3[0] == 0) and ALU compare is true
+   //c) It's a conditional branch (opcode[0] == 0) of type bne,bge,bgeu (funct3[0] == 1) and ALU compare is false
+   //Only valid during the last cycle of INIT, when the branch condition has
+   //been calculated.
+   wire      take_branch = i_branch_op & (!i_cond_branch | (i_alu_cmp^i_bne_or_bge));
 
    //slt*, branch/jump, shift, load/store
    wire two_stage_op = i_slt_op | i_mem_op | i_branch_op | i_shift_op;
@@ -87,9 +98,26 @@ module serv_state
    //Shift operations require bufreg to hold for one cycle between INIT and RUN before shifting
    assign o_bufreg_hold = !o_cnt_en & (stage_two_req | ~i_shift_op);
 
+   initial if (RESET_STRATEGY == "NONE") o_cnt_r = 4'b0001;
+
+
+   assign o_ibus_cyc = ibus_cyc & !i_rst;
+
    always @(posedge i_clk) begin
+      //ibus_cyc changes on three conditions.
+      //1. i_rst is asserted. Together with the async gating above, o_ibus_cyc
+      //   will be asserted as soon as the reset is released. This is how the
+      //   first instruction is fetced
+      //2. o_cnt_done and o_ctrl_pc_en are asserted. This means that SERV just
+      //   finished updating the PC, is done with the current instruction and
+      //   o_ibus_cyc gets asserted to fetch a new instruction
+      //3. When i_ibus_ack, a new instruction is fetched and o_ibus_cyc gets
+      //   deasserted to finish the transaction
+      if (i_ibus_ack | o_cnt_done | i_rst)
+	ibus_cyc <= o_ctrl_pc_en | i_rst;
+
       if (o_cnt_done)
-	o_ctrl_jump <= o_init & i_take_branch;
+	o_ctrl_jump <= o_init & take_branch;
 
       if (o_cnt_en)
 	stage_two_pending <= o_init;
@@ -116,10 +144,13 @@ module serv_state
 	o_cnt_r <= {o_cnt_r[2:0],o_cnt_r[3]};
 
       if (i_rst) begin
-	 o_cnt   <= 3'd0;
-	 stage_two_pending <= 1'b0;
-	 o_ctrl_jump <= 1'b0;
-	 o_cnt_r <= 4'b0001;
+	 if (RESET_STRATEGY != "NONE") begin
+	    o_cnt_en <= 1'b0;
+	    o_cnt   <= 3'd0;
+	    stage_two_pending <= 1'b0;
+	    o_ctrl_jump <= 1'b0;
+	    o_cnt_r <= 4'b0001;
+	 end
       end
    end
 
@@ -144,8 +175,17 @@ module serv_state
 	misalign_trap_sync <= trap_pending;
       if (i_ibus_ack)
 	misalign_trap_sync <= 1'b0;
+      if (i_rst)
+	if (RESET_STRATEGY != "NONE") begin
+	   misalign_trap_sync <= 1'b0;
+	   irq_sync           <= 1'b0;
+	   o_pending_irq      <= 1'b0;
+	end
+
    end // always @ (posedge i_clk)
       end else begin
+	 assign o_trap_taken = 0;
+	 assign o_ctrl_trap = 0;
 	 always @(*)
 	   o_pending_irq = 1'b0;
       end
