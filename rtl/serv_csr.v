@@ -76,7 +76,8 @@ module serv_csr
 
    always @(posedge i_clk) begin
       if (i_mie_en & i_cnt7)
-	mie_mtie <= csr_in;
+	//mie_mtie <= csr_in;
+	mie_mtie <= 1;
 
       timer_irq_r <= timer_irq;
 
